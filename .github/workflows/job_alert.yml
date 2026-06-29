@@ -54,7 +54,9 @@ jobs:
           GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
           # DRY_RUN is read by the bot when set to "true"
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
-        run: python job_bot.py
+        run: |
+          cp config_template.py config.py
+          python job_bot.py
 
       # ── 5. Commit updated seen_jobs.json ─────────────────────────────────────
       # This is the key step that makes deduplication work across runs:
