@@ -1,0 +1,85 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AI/ML Job Alert Bot — GitHub Actions Workflow
+# ─────────────────────────────────────────────────────────────────────────────
+# Schedule: every 6 hours  (00:00, 06:00, 12:00, 18:00 UTC)
+# Manual trigger: Actions tab → "Run workflow"
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: AI/ML Job Alert Bot
+
+on:
+  schedule:
+    - cron: "0 4 * * *"     # once daily at 4:30 AM UTC (10:00 AM IST)
+  workflow_dispatch:          # manual trigger button in GitHub UI
+    inputs:
+      dry_run:
+        description: "Dry run (skip Telegram send)"
+        required: false
+        default: "false"
+
+# Allow the workflow to push the updated seen_jobs.json back to the repo
+permissions:
+  contents: write
+
+jobs:
+  run-job-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Use a token with write access so we can push seen_jobs.json back
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Set up Python ─────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── 3. Install dependencies ──────────────────────────────────────────────
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── 4. Run the bot ───────────────────────────────────────────────────────
+      - name: Run job alert bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Optional: provide a GitHub personal access token for higher API limits
+          GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
+          # DRY_RUN is read by the bot when set to "true"
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: python job_bot.py
+
+      # ── 5. Commit updated seen_jobs.json ─────────────────────────────────────
+      # This is the key step that makes deduplication work across runs:
+      # the updated seen_jobs.json is committed back to the repository so
+      # the NEXT run knows which jobs were already sent.
+      - name: Commit seen_jobs.json
+        run: |
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Only commit if the file actually changed
+          if git diff --quiet seen_jobs.json; then
+            echo "seen_jobs.json unchanged — nothing to commit."
+          else
+            git add seen_jobs.json
+            git commit -m "chore: update seen_jobs.json [skip ci]"
+            git push
+            echo "seen_jobs.json committed and pushed."
+          fi
+
+      # ── 6. Upload logs as artifact ───────────────────────────────────────────
+      - name: Upload log artifact
+        if: always()   # upload even if the bot step fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-bot-log-${{ github.run_number }}
+          path: job_bot.log
+          retention-days: 7

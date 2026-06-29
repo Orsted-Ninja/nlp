@@ -1,0 +1,7 @@
+# Never commit real credentials
+config.py
+
+# Logs and runtime files
+*.log
+__pycache__/
+*.pyc
